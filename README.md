@@ -12,9 +12,9 @@ The following environment variables can be provided:
 - `CRON_HEALING`: the cron config for how often to trigger auto healing. Defaults to 0 \* \* \* \* (so every hour).
 - `HEALING_LIMIT`: number of instances to heal in one iteration of the auto healing. Defaults to 1000. Only used if `AUTO_HEALING` is true.
 - `HEALING_DUMP_GRAPH`: the (temporary) graph that is used to receive the raw triples posted on the LDES. Defaults to `http://mu.semte.ch/graphs/ldes-dump`. This graph is cleared every time the healing process is run.
+- `HEALING_FLAG_GRAPH`: the graph where subjects are flagged for healing with a timestamp at which healing should be triggered. This is mostly done so a delta is produced for the ldes-delta-pusher so it can put the instance on the LDES again, but it could in theory be picked up by another service. Defaults to `http://mu.semte.ch/graphs/ldes-healing-flags`. At most one timestamp will be be set per instance in this graph.
 - `HEALING_TRANSFORMED_GRAPH`: the (temporary) graph where the processed LDES data is stored. This holds the latest version of the LDES instances so they can be compared with what is currently in the database. Defaults to `http://mu.semte.ch/graphs/transformed-ldes-data`
 - `HEALING_BATCH_SIZE`: the number of triples that are written to the dump graph at a time. Defaults to 100
-- `LDES_DELTA_ENDPOINT`: the endpoint incorrect instances or missing are sent to when healing the LDES stream, defaults to `http://ldes-delta-pusher/publish`
 - `VIRTUOSO_DATE_WORKAROUND`: we noticed that some virtuoso versions have trouble comparing dates, finding differences where the dates are actually the same (with the same datatype). The workaround is to compare the string value of the objects during auto healing instead of the object values themselves. This is obviously bad so don't use it unless you really have to.
 
 ## Auto Healing

@@ -8,13 +8,14 @@ export const HEALING_BATCH_SIZE = parseInt(
 );
 export const HEALING_DUMP_GRAPH =
   process.env.HEALING_DUMP_GRAPH ?? "http://mu.semte.ch/graphs/ldes-dump";
+export const HEALING_FLAG_GRAPH =
+  process.env.HEALING_FLAG_GRAPH ??
+  "http://mu.semte.ch/graphs/ldes-healing-flags";
 export const HEALING_TRANSFORMED_GRAPH =
   process.env.HEALING_TRANSFORMED_GRAPH ??
   "http://mu.semte.ch/graphs/transformed-ldes-data";
 export const DIRECT_DB_ENDPOINT =
   process.env.DIRECT_DB_ENDPOINT || "http://virtuoso:8890/sparql";
-export const LDES_DELTA_ENDPOINT =
-  process.env.LDES_DELTA_ENDPOINT || `http://ldes-delta-pusher/publish`;
 
 const config = {
   AUTO_HEALING,
@@ -23,8 +24,8 @@ const config = {
   DIRECT_DB_ENDPOINT,
   HEALING_BATCH_SIZE,
   HEALING_DUMP_GRAPH,
+  HEALING_FLAG_GRAPH,
   HEALING_LIMIT,
-  LDES_DELTA_ENDPOINT,
   STARTUP_TIMEOUT,
 };
 

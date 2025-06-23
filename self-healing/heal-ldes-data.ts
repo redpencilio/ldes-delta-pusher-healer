@@ -5,10 +5,10 @@ import {
   HEALING_TRANSFORMED_GRAPH,
   DIRECT_DB_ENDPOINT,
   HEALING_LIMIT,
-  LDES_DELTA_ENDPOINT,
+  HEALING_FLAG_GRAPH,
+  HEALING_BATCH_SIZE,
 } from "../environment";
 import { HealingConfig } from "../config/config";
-import fetch from "node-fetch";
 
 export async function healEntities(
   stream: string,
@@ -18,15 +18,11 @@ export async function healEntities(
   for (const type of rdfTypes) {
     await erectMissingTombstones(type, stream, config);
     const differences = await getDifferences(type, stream, config);
-    await triggerRecreate(differences, stream, config);
+    await markForHealing(differences);
   }
 }
 
-async function triggerRecreate(
-  differences,
-  stream: string,
-  config: HealingConfig
-) {
+async function markForHealing(differences) {
   const uniqueSubjects = [
     ...new Set<string>(differences.map((difference) => difference.s.value)),
   ];
@@ -34,92 +30,38 @@ async function triggerRecreate(
     console.log("No differences found.");
     return;
   }
-  const subjectTypes = await getSubjectTypes(uniqueSubjects, stream, config);
-  const inserts = subjectTypes.map((s) => {
-    // fake everything but the subject
-    return {
-      subject: { value: s.subject, type: "uri" },
-      predicate: {
-        value: "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
-        type: "uri",
-      },
-      object: { value: s.type, type: "uri" },
-      graph: { value: "http://mu.semte.ch/graphs/application", type: "uri" },
-    };
-  });
 
-  console.log(
-    `Inserting ${inserts.length} triples: ${JSON.stringify(inserts)}`
-  );
-
-  const response = await fetch(LDES_DELTA_ENDPOINT, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify([
-      {
-        inserts,
-        deletes: [],
-      },
-    ]),
-  });
-  if (!response.ok) {
-    console.log("ERROR writing to LDES Delta endpoint", response.statusText);
-    throw new Error("Failed to write to LDES Delta endpoint");
-  }
-}
-
-async function getSubjectTypes(subjects: string[], stream, config) {
-  let graphFilter = config[stream].graphFilter || "";
-  const graphTypesToExclude = config[stream].graphTypesToExclude;
-  const excludedGraphs = config[stream].graphsToExclude;
-  let excludeGraphsFilter = "";
-  if (excludedGraphs?.length > 0) {
-    excludeGraphsFilter = excludedGraphs
-      .map((graph: string) => sparqlEscapeUri(graph))
-      .join(", ");
-    excludeGraphsFilter = `FILTER(?g NOT IN (${excludeGraphsFilter}))`;
-  }
-  let excludeGraphTypesFilter = "";
-  let excludeGraphTypeValues = "";
-  if (graphTypesToExclude?.length > 0) {
-    excludeGraphTypeValues = graphTypesToExclude
-      .map((type: string) => sparqlEscapeUri(type))
-      .join("\n ");
-    excludeGraphTypeValues = `VALUES ?excludeGraphType { ${excludeGraphTypeValues} }`;
-    excludeGraphTypesFilter = `FILTER NOT EXISTS {
-      ?g a ?excludedGraphType.
-    }`;
-  }
-
-  graphFilter = `${graphFilter}
-  ${excludeGraphsFilter}
-  ${excludeGraphTypesFilter}`;
-
-  const result = await querySudo(
-    `
+  while (uniqueSubjects.length > 0) {
+    const batch = uniqueSubjects.splice(0, HEALING_BATCH_SIZE);
+    const safeValues = batch.map((i) => sparqlEscapeUri(i)).join("\n");
+    const update = `
     PREFIX ext: <http://mu.semte.ch/vocabularies/ext/>
-    SELECT DISTINCT ?s ?type
-    WHERE {
-      VALUES ?s { ${subjects.map(sparqlEscapeUri).join(" ")} }
-      ${excludeGraphTypeValues}
-      GRAPH ?g {
-        ?s a ?type.
+    DELETE {
+      GRAPH ${sparqlEscapeUri(HEALING_FLAG_GRAPH)} {
+        ?s ext:markedForLDESHealingAt ?oldTimestamp .
       }
-
-      ${graphFilter}
     }
-  `
-  );
+    INSERT {
+      GRAPH ${sparqlEscapeUri(HEALING_FLAG_GRAPH)} {
+        ?s ext:markedForLDESHealingAt ?newTimestamp .
+      }
+    }
+    WHERE {
+      VALUES ?s {
+        ${safeValues}
+      }
+      ?s a ?thing .
+      OPTIONAL {
+        GRAPH ${sparqlEscapeUri(HEALING_FLAG_GRAPH)} {
+          ?s ext:markedForLDESHealingAt ?oldTimestamp .
+        }
+      }
+      BIND(NOW() AS ?newTimestamp)
+    }
+  `;
 
-  return result.results.bindings.map((binding) => {
-    return {
-      subject: binding.s.value,
-      type: binding.type.value,
-    };
-  });
+    await updateSudo(update);
+  }
 }
 
 async function getDifferences(
